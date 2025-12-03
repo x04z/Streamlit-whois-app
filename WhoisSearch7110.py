@@ -92,7 +92,7 @@ def create_secondary_links(ip):
         'VirusTotal': f'https://www.virustotal.com/gui/ip-address/{ip}',
         'Aguse': f'https://www.aguse.jp/?url={ip}',
         'Whois.com': f'https://www.whois.com/whois/{ip}',
-        'DomainSearch.jp': f'https://www.domainsearch.jp/whois/{ip}', 
+        'DomainSearch.jp': f'https://www.domainsearch.jp/{ip}', 
         'Who.is IP': f'https://who.is/whois-ip/ip-address/{ip}',      
     }
     
@@ -623,4 +623,5 @@ def main():
             )
 
 if __name__ == "__main__":
+
     main()

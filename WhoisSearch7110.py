@@ -501,7 +501,7 @@ def display_new_tip(tip_placeholder):
 def main():
     st.set_page_config(layout="wide") 
     st.title("🌐Whois一括検索アプリ")
-    st.markdown("IPアドレスの国情報に基づき、**管轄する唯一のRIR**（JPNIC, APNIC, RIPEなど）のリンクを自動判定して表示します。")
+    st.markdown("IPアドレスの国情報に基づき、**管轄するRIR**（JPNIC, APNIC, RIPEなど）のリンクを自動判定して表示します。")
     
     # --- Whois/セキュリティ検索リソース特性比較 (説明に一括記載) ---
     st.markdown("""
@@ -625,4 +625,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 

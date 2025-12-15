@@ -1,3 +1,6 @@
 streamlit
 pandas
 requests
+ipwhois
+streamlit-option-menu
+altair

@@ -2,5 +2,6 @@ streamlit
 pandas
 requests
 ipwhois
+dnspython # 念のため追加
 streamlit-option-menu
 altair

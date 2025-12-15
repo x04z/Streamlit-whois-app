@@ -11,15 +11,15 @@ from urllib.parse import quote
 import math
 import altair as alt # 新しいグラフ描画のためにaltairをインポート
 import json # GeoJSONの読み込みに使用
-# --- 追加: CIDR取得のためのipwhoisライブラリ ---
+# --- 修正: ipwhois.exceptionsからHTTPErrorを削除 ---
 try:
     from ipwhois import IPWhois
-    from ipwhois.exceptions import ASNRegistryError, HTTPError, TimeoutError as IPWhoisTimeoutError
+    # ipwhois 1.3.0 で存在しない HTTPError を削除
+    from ipwhois.exceptions import ASNRegistryError, TimeoutError as IPWhoisTimeoutError
     WHOIS_AVAILABLE = True
 except ImportError:
     # WHOIS機能がない場合は警告を出し、CIDRキャッシングを無効化
-    # アプリの動作自体は単一IPキャッシュで継続
-    st.warning("⚠️ CIDRキャッシングには 'ipwhois' が必要です。`pip install ipwhois` を実行してください。") 
+    st.warning("⚠️ CIDRキャッシングには 'ipwhois' が必要です。`pip install ipwhois` を実行してください。")
     WHOIS_AVAILABLE = False
 # -----------------------------------------------
 
@@ -275,8 +275,10 @@ def get_cidr_from_whois(ip, timeout=CIDR_WHOIS_TIMEOUT):
     except IPWhoisTimeoutError:
         # タイムアウト
         return None
-    except (ASNRegistryError, HTTPError, Exception):
+    # 修正: requests.exceptions.HTTPError は ipwhois のバージョンによっては存在しないため、一般的な Exception でキャッチする
+    except (ASNRegistryError, Exception) as e:
         # その他のWHOISエラー
+        # st.error(f"WHOIS CIDR取得エラー: {e}") # デバッグ用。本番ではコメントアウト
         return None
 
     return None

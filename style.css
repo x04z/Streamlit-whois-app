@@ -1,0 +1,136 @@
+/* ===== 共通ベース ===== */
+body {
+    font-family: 'Orbitron', 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 0;
+    transition: all 0.4s ease;
+}
+
+h1, h2, h3, h4, h5 {
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+/* ===== ライトモード ===== */
+.light-mode {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    color: #2d3748;
+}
+
+.light-mode .stApp {
+    background: transparent;
+}
+
+.light-mode header, 
+.light-mode .stSidebar {
+    background: rgba(255, 255, 255, 0.9) !important;
+    backdrop-filter: blur(10px);
+}
+
+.light-mode .block-container {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* ===== ダークモード ===== */
+.dark-mode {
+    background: #0f172a;
+    color: #e2e8f0;
+}
+
+.dark-mode .stApp {
+    background: transparent;
+}
+
+.dark-mode header, 
+.dark-mode .stSidebar {
+    background: rgba(15, 23, 42, 0.9) !important;
+    backdrop-filter: blur(10px);
+}
+
+.dark-mode .block-container {
+    background: rgba(30, 41, 59, 0.7);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* ===== サイバーパンクモード（ネオン全開）===== */
+.cyberpunk-mode {
+    background: linear-gradient(135deg, #0b0c1a 0%, #1a0033 50%, #000000 100%);
+    color: #00ffea;
+    animation: cyber-bg 20s ease infinite;
+}
+
+@keyframes cyber-bg {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.cyberpunk-mode .stApp {
+    background: transparent;
+}
+
+.cyberpunk-mode header {
+    background: rgba(10, 0, 30, 0.8) !important;
+    border-bottom: 2px solid #ff00ff;
+    box-shadow: 0 0 20px #ff00ff;
+}
+
+.cyberpunk-mode .stSidebar {
+    background: linear-gradient(to bottom, rgba(20, 0, 40, 0.9), rgba(0, 0, 20, 0.9)) !important;
+    border-right: 2px solid #00ffff;
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+}
+
+.cyberpunk-mode .block-container {
+    background: rgba(10, 5, 30, 0.6);
+    border: 2px solid #00ffff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 
+        0 0 20px rgba(0, 255, 255, 0.6),
+        inset 0 0 20px rgba(255, 0, 255, 0.2);
+    backdrop-filter: blur(8px);
+}
+
+.cyberpunk-mode h1, .cyberpunk-mode h2, .cyberpunk-mode h3 {
+    text-shadow: 0 0 10px #00ffff, 0 0 20px #ff00ff;
+    color: #00ffea;
+}
+
+.cyberpunk-mode .stButton>button {
+    background: linear-gradient(45deg, #ff00ff, #00ffff);
+    color: black;
+    font-weight: bold;
+    border: none;
+    box-shadow: 0 0 15px rgba(255, 0, 255, 0.8);
+    transition: all 0.3s;
+}
+
+.cyberpunk-mode .stButton>button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 0 30px rgba(0, 255, 255, 1);
+}
+
+.cyberpunk-mode code {
+    background: rgba(0, 255, 255, 0.1) !important;
+    color: #00ffff;
+    border: 1px solid #00ffff;
+    text-shadow: 0 0 8px #00ffff;
+}
+
+/* 共通のカード風エフェクト強化 */
+.block-container {
+    margin: 15px 0;
+    transition: all 0.3s ease;
+}
+
+.block-container:hover {
+    transform: translateY(-5px);
+}

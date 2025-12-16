@@ -798,20 +798,40 @@ def main():
         theme = st.radio(
             "表示テーマを選択",
             ("ライトモード", "ダークモード", "サイバーパンク"),
-            key="theme_selector"
+            key="theme_selector",
+            horizontal=True
         )
-    
-        # CSS適用
-        with open("style.css") as f:
-            css = f.read()
-    
-        # 選択されたテーマのクラスをbodyに適用
+
+        # CSS読み込みとテーマ適用
+        try:
+            with open("style.css") as f:
+                css = f.read()
+        except FileNotFoundError:
+            st.error("style.css が見つかりません！リポジトリのルートに置いてください。")
+            css = ""
+
         if theme == "ライトモード":
             theme_class = "light-mode"
         elif theme == "ダークモード":
             theme_class = "dark-mode"
         else:
             theme_class = "cyberpunk-mode"
+
+        st.markdown(f"""
+        <style>
+        body.{theme_class} {{
+            {css}
+        }}
+        div.stApp.{theme_class} {{
+            background: transparent;
+        }}
+        /* 強制的に全要素にクラス付与 */
+        .stApp > div:first-child {{
+            class: {theme_class};
+        }}
+        {css}
+        </style>
+        """, unsafe_allow_html=True)
     
         st.markdown(f"""
         <style>

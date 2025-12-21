@@ -15,11 +15,6 @@ import json # GeoJSONの読み込みに使用
 # ページ設定（必ず先頭に記述）
 st.set_page_config(layout="wide", page_title="Whois Search Tool", page_icon="🌐")
 
-# Google Fonts読み込み（Orbitronでサイバーパンク感を爆上げ）
-st.markdown("""
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
-""", unsafe_allow_html=True)
-
 # --- 設定：API通信と並行処理 ---
 # ユーザーが選択可能なモードの設定値を定義
 MODE_SETTINGS = {
@@ -134,7 +129,8 @@ ISP_JP_NAME = {
     'So-net Entertainment Corporation': 'ソネット',
     'ASAHI Net, Inc.': '朝日ネット',
     'Optage Inc.': 'オプテージ',
-    'Jupiter Telecommunications Co., Ltd.': 'ジュピターテレコム (J:COM)',
+    'Jupiter Telecommunications Co., Ltd.': 'J:COM',
+    'JCN':'J:COM',
     'SAKURA Internet Inc.': 'さくらインターネット',
     'Chubu Telecommunications Co., Inc.': '中部テレコミュニケーション',
     'Energia Communications, Inc.': 'エネコム',
@@ -725,7 +721,7 @@ def display_results(results, current_mode_full_text, display_mode):
                 row_cols = st.columns(col_widths)
                 
                 # --- No. (普通の数字として表示) ---
-                row_cols[0].write(f"**{i+1}**")
+                row_cols[0].write(f"**{idx+1}**")
                 
                 # --- Target IP (IPv6絵文字化防止) ---
                 target_ip = res.get('Target_IP', 'N/A')
@@ -793,53 +789,6 @@ def main():
             st.session_state['cidr_cache'] = {} 
             st.info("IP/CIDRキャッシュをクリアしました。")
             st.rerun()
-
-        st.markdown("### 🎨 テーマ選択")
-        theme = st.radio(
-            "表示テーマを選択",
-            ("ライトモード", "ダークモード", "サイバーパンク"),
-            key="theme_selector",
-            horizontal=True
-        )
-
-        # CSS読み込みとテーマ適用
-        try:
-            with open("style.css") as f:
-                css = f.read()
-        except FileNotFoundError:
-            st.error("style.css が見つかりません！リポジトリのルートに置いてください。")
-            css = ""
-
-        if theme == "ライトモード":
-            theme_class = "light-mode"
-        elif theme == "ダークモード":
-            theme_class = "dark-mode"
-        else:
-            theme_class = "cyberpunk-mode"
-
-        st.markdown(f"""
-        <style>
-        body.{theme_class} {{
-            {css}
-        }}
-        div.stApp.{theme_class} {{
-            background: transparent;
-        }}
-        /* 強制的に全要素にクラス付与 */
-        .stApp > div:first-child {{
-            class: {theme_class};
-        }}
-        {css}
-        </style>
-        """, unsafe_allow_html=True)
-    
-        st.markdown(f"""
-        <style>
-        body {{{theme_class}}}
-        .stApp {{{theme_class}}}
-        {css}
-        </style>
-        """, unsafe_allow_html=True)
 
     # --- メインコンテンツ：仕様・解説タブ (省略) ---
     if selected_menu == "仕様・解説":
@@ -1279,3 +1228,6 @@ def main():
         
 if __name__ == "__main__":
     main()
+
+
+

@@ -1,7 +1,8 @@
 streamlit
+streamlit-option-menu
 pandas
 requests
-ipwhois
-dnspython # 念のため追加
-streamlit-option-menu
-altair
+ipaddress
+altair>=5.0.0
+numpy
+openpyxl

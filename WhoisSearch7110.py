@@ -12,6 +12,7 @@ import math
 import altair as alt 
 import json 
 import io 
+import re 
 
 # --- Excelグラフ生成用ライブラリ ---
 from openpyxl import Workbook
@@ -20,7 +21,7 @@ from openpyxl.chart import BarChart, Reference, Series
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 # ページ設定
-st.set_page_config(layout="wide", page_title="Whois Search Tool", page_icon="🌐")
+st.set_page_config(layout="wide", page_title="検索大臣", page_icon="🌐")
 
 # ==========================================
 # 🛠️ 自動モード判定ロジック (st.secrets利用)
@@ -47,7 +48,10 @@ MODE_SETTINGS = {
         "DELAY_BETWEEN_REQUESTS": 1.4 
     }
 }
-IP_API_URL = "http://ip-api.com/json/{ip}?fields=status,country,countryCode,isp,query,message"
+IP_API_URL = "http://ip-api.com/json/{ip}?fields=status,country,countryCode,isp,org,query,message" # orgを追加
+IPINFO_API_URL = "https://ipinfo.io/{ip}?token={token}" # Proモード用
+RDAP_BOOTSTRAP_URL = "https://rdap.apnic.net/ip/{ip}" # RDAP用
+
 RATE_LIMIT_WAIT_SECONDS = 120 
   
 RIR_LINKS = {
@@ -119,24 +123,8 @@ COUNTRY_CODE_TO_NUMERIC_ISO = {
     'VU': 548, 'VE': 862, 'VN': 704, 'VI': 850, 'WF': 876, 'EH': 732, 'YE': 887, 'ZM': 894, 'ZW': 716
 }
 
-COUNTRY_JP_NAME = {
-    "AF": "アフガニスタン","AL": "アルバニア","DZ": "アルジェリア","AS": "アメリカ領サモア","AD": "アンドラ","AO": "アンゴラ",
-    "AI": "アンギラ","AQ": "南極","AG": "アンティグア・バーブーダ","AR": "アルゼンチン","AM": "アルメニア","AW": "アルバ","AU": "オーストラリア",
-    "AT": "オーストリア","AZ": "アゼルバイジャン","BS": "バハマ","BH": "バーレーン","BD": "バングラデシュ","BB": "バルバドス","BY": "ベラルーシ",
-    "BE": "ベルギー","BZ": "ベリーズ","BJ": "ベナン","BM": "バミューダ","BT": "ブータン","BO": "ボリビア","BA": "ボスニア・ヘルツェゴビナ",
-    "BW": "ボツワナ","BR": "ブラジル","BN": "ブルネイ","BG": "ブルガリア","BF": "ブルキナファソ","BI": "ブルンジ","KH": "カンボジア","CM": "カメルーン",
-    "CA": "カナダ","CV": "カーボベルデ","CF": "中央アフリカ共和国","TD": "チャド","CL": "チリ","CN": "中国","CO": "コロンビア","CR": "コスタリカ",
-    "HR": "クロアチア","CU": "キューバ","CY": "キプロス","CZ": "チェコ","DK": "デンマーク","DJ": "ジブチ","DM": "ドミニカ国","DO": "ドミニカ共和国",
-    "EC": "エクアドル","EG": "エジプト","SV": "エルサルバドル","EE": "エストニア","ET": "エチオピア","FI": "フィンランド","FR": "フランス","DE": "ドイツ",
-    "GR": "ギリシャ","GL": "グリーンランド","GT": "グアテマラ","GY": "ガイアナ","HK": "香港","HU": "ハンガリー","IN": "インド","ID": "インドネシア",
-    "IR": "イラン","IQ": "イラク","IE": "アイルランド","IL": "イスラエル","IT": "イタリア","JP": "日本","KR": "韓国","TW": "台湾","MY": "マレーシア",
-    "MX": "メキシコ","NL": "オランダ","NZ": "ニュージーランド","NO": "ノルウェー","PK": "パキスタン","PA": "パナマ","PE": "ペルー","PH": "フィリピン",
-    "PL": "ポーランド","PT": "ポルトガル","QA": "カタール","RO": "ルーマニア","RU": "ロシア","SA": "サウジアラビア","SG": "シンガポール","ZA": "南アフリカ",
-    "ES": "スペイン","SE": "スウェーデン","CH": "スイス","TH": "タイ","TR": "トルコ","UA": "ウクライナ","AE": "アラブ首長国連邦","GB": "イギリス",
-    "US": "アメリカ","VN": "ベトナム","YE": "イエメン","ZM": "ザンビア","ZW": "ジンバブエ"
-}
-
 # --- ISP名称の日本語マッピング (企業名統一版) ---
+# ここは「完全一致」で見つかるもの
 ISP_JP_NAME = {
     # --- NTT Group ---
     'NTT Communications Corporation': 'NTTドコモビジネス', 
@@ -147,6 +135,10 @@ ISP_JP_NAME = {
     
     # --- KDDI Group ---
     'Kddi Corporation': 'KDDI',
+    'KDDI CORPORATION': 'KDDI',
+    'DION': 'KDDI',
+    'Dion': 'KDDI',
+    'dion': 'KDDI',
     'Chubu Telecommunications Co., Inc.': '中部テレコミュニケーション',
     'Chubu Telecommunications Company, Inc.': '中部テレコミュニケーション',
     'Hokkaido Telecommunication Network Co., Inc.': 'HOTnet',
@@ -195,15 +187,55 @@ ISP_JP_NAME = {
     'KIBI Cable Television Co., Ltd.': '吉備ケーブルテレビ',
 }
 
+# --- 🆕 強力な名寄せルール (ハードコーディング辞書) ---
+# 小文字・正規化されたISP名に対して、部分一致で検索し、強制変換する
+ISP_REMAP_RULES = [
+    # J:COM系 (古いJCN表記などを全てJ:COMへ統合)
+    ('jcn', 'J:COM'),
+    ('jupiter', 'J:COM'),
+    ('cablenet', 'J:COM'),
+    ('tsuchiura cable', 'J:COM'),
+    ('kawayu', 'J:COM'), 
+    
+    # KDDI系
+    ('dion', 'KDDI'),
+    ('au one', 'KDDI (au one net)'),
+    ('kddi', 'KDDI'),
+
+    # 電力系・その他
+    ('k-opti', 'オプテージ'),
+    ('ctc', '中部テレコミュニケーション'),
+    ('commufa', '中部テレコミュニケーション'),
+    ('vectant', 'アルテリア・ネットワークス'),
+    ('ucom', 'アルテリア・ネットワークス'),
+    ('arteria', 'アルテリア・ネットワークス'),
+    ('softbank', 'ソフトバンク'),
+    ('bbtec', 'ソフトバンク'),
+    ('ocn', 'OCN'),
+    ('ntt', 'NTTグループ'), 
+    ('infosphere', 'NTTPC (InfoSphere)'),
+    ('wakwak', 'NTT-ME (WAKWAK)'),
+    ('plala', 'NTTドコモ (ぷらら)'),
+    ('so-net', 'ソニーネットワークコミュニケーションズ'),
+    ('nuro', 'ソニーネットワークコミュニケーションズ (NURO)'),
+    ('biglobe', 'ビッグローブ'),
+    ('dti', 'DTI'),
+    ('iij', 'IIJ'),
+    ('transix', 'インターネットマルチフィード (transix)'),
+    ('mfeed', 'インターネットマルチフィード'),
+    ('v6plus', 'JPNE (v6プラス)'),
+    ('jpne', 'JPNE'),
+    ('en ne', '楽天モバイル'), 
+    ('rakuten', '楽天グループ'),
+]
+
 # 正規化関数: 小文字化し、カンマ(,)とピリオド(.)を除去する
 def normalize_isp_key(text):
     if not text:
         return ""
-    # 小文字変換 -> カンマ削除 -> ピリオド削除 -> 前後の空白削除
     return text.lower().replace(',', '').replace('.', '').strip()
 
-# 検索用にキーを正規化した辞書を作成（大文字小文字・記号の揺らぎを吸収）
-# 例: "NTT DOCOMO, INC." -> "ntt docomo inc"
+# 検索用にキーを正規化した辞書を作成
 ISP_JP_NAME_NORMALIZED = {normalize_isp_key(k): v for k, v in ISP_JP_NAME.items()}
 
 # --- 匿名化・プロキシ判定用データ ---
@@ -277,17 +309,30 @@ def detect_proxy_vpn_tor(ip, isp_name, tor_nodes):
     # 修正: Residential/Business -> Standard Connection
     return "Standard Connection"
 
+# 🆕 強化されたISP名寄せロジック
 def get_jp_names(english_isp, country_code):
     if not english_isp:
         return "N/A", COUNTRY_JP_NAME.get(country_code, country_code)
 
-    # 1. まず完全一致を試す (基本)
+    normalized_input = normalize_isp_key(english_isp)
+    jp_isp = english_isp # デフォルトは英語のまま
+
+    # 1. 完全一致 (高速)
     if english_isp in ISP_JP_NAME:
         jp_isp = ISP_JP_NAME[english_isp]
+    elif normalized_input in ISP_JP_NAME_NORMALIZED:
+        jp_isp = ISP_JP_NAME_NORMALIZED[normalized_input]
     else:
-        # 2. 正規化して検索 (カンマ・ピリオド・大小文字を無視して照合)
-        normalized_input = normalize_isp_key(english_isp)
-        jp_isp = ISP_JP_NAME_NORMALIZED.get(normalized_input, english_isp)
+        # 2. 部分一致 (名寄せルール適用)
+        # ルールリストの上から順にチェックし、ヒットしたら即採用
+        found = False
+        for keyword, mapped_name in ISP_REMAP_RULES:
+            if keyword in normalized_input:
+                jp_isp = mapped_name
+                found = True
+                break
+        
+        # 3. どのルールにも合致しなければ、元の英語名を返す
 
     jp_country = COUNTRY_JP_NAME.get(country_code, country_code)
     return jp_isp, jp_country
@@ -295,7 +340,7 @@ def get_jp_names(english_isp, country_code):
 @st.cache_resource
 def get_session():
     session = requests.Session()
-    session.headers.update({"User-Agent": "WhoisBatchTool/1.4 (+PythonStreamlitApp)"})
+    session.headers.update({"User-Agent": "WhoisBatchTool/2.1 (+PythonStreamlitApp)"})
     return session
 
 session = get_session()
@@ -432,9 +477,107 @@ def create_secondary_links(target):
         link_html += f"[{name}]({url}) | "
     return link_html.rstrip(' | ')
 
+# 🆕 RDAPデータ取得関数 (公式台帳への照会)
+def fetch_rdap_data(ip):
+    try:
+        url = RDAP_BOOTSTRAP_URL.format(ip=ip)
+        # RDAPはリダイレクトされることが多いため allow_redirects=True
+        response = session.get(url, timeout=5, allow_redirects=True)
+        if response.status_code == 200:
+            data = response.json()
+            # RDAPのレスポンス形式から組織名を探す (nameやremarks)
+            network_name = data.get('name', '')
+            
+            # 詳細な記述がある場合もあるのでremarksも見るが、まずはnameを採用
+            return network_name
+    except:
+        pass
+    return None
 
-# --- API通信関数 ---
-def get_ip_details_from_api(ip, cidr_cache_snapshot, delay_between_requests, rate_limit_wait_seconds, tor_nodes):
+# 🆕 Proモード用 API取得関数 (ipinfo.io) - 改良版
+def get_ip_details_pro(ip, token, tor_nodes):
+    result = {
+        'Target_IP': ip, 'ISP': 'N/A', 'ISP_JP': 'N/A', 'Country': 'N/A', 'Country_JP': 'N/A', 
+        'CountryCode': 'N/A', 'RIR_Link': 'N/A', 'Secondary_Security_Links': 'N/A', 'Status': 'N/A'
+    }
+    try:
+        url = IPINFO_API_URL.format(ip=ip, token=token)
+        response = session.get(url, timeout=10)
+        
+        if response.status_code == 429:
+             result['Status'] = 'Error: Rate Limit (Pro)'
+             return result
+
+        response.raise_for_status()
+        data = response.json()
+        
+        # --- 基本情報の取得 ---
+        org_raw = data.get('org', '')
+        isp_name = re.sub(r'^AS\d+\s+', '', org_raw) if org_raw else 'N/A'
+        
+        result['ISP'] = isp_name
+        result['CountryCode'] = data.get('country', 'N/A')
+        result['Country'] = result['CountryCode']
+        result['RIR_Link'] = get_authoritative_rir_link(ip, result['CountryCode'])
+        result['Status'] = 'Success (Pro API)'
+        
+        # 名寄せ処理
+        jp_isp, jp_country = get_jp_names(result['ISP'], result['CountryCode'])
+        result['ISP_JP'] = jp_isp
+        result['Country_JP'] = jp_country
+
+        # --- 🛡️ 判定ロジックの分岐 (ipinfoのprivacy情報を活用) ---
+        privacy_data = data.get('privacy', {})
+        
+        if privacy_data:
+            # --- パターンA: ipinfoの公式判定を採用 ---
+            detected_types = []
+            if privacy_data.get('vpn', False):
+                detected_types.append("VPN")
+            if privacy_data.get('proxy', False):
+                detected_types.append("Proxy")
+            if privacy_data.get('tor', False):
+                detected_types.append("Tor Node")
+            if privacy_data.get('hosting', False):
+                detected_types.append("Hosting")
+            if privacy_data.get('relay', False): # iCloud Private Relayなど
+                detected_types.append("Relay")
+            
+            if detected_types:
+                # 複数の性質を持つ場合もあるので結合 (例: "VPN, Hosting")
+                result['Proxy_Type'] = ", ".join(detected_types)
+            else:
+                result['Proxy_Type'] = "" # 何も検知されなければ一般回線扱い
+                
+        else:
+            # --- パターンB: privacyデータがない場合 (無料プラン等) ---
+            # 従来通り、ツール独自のISP名判定ロジックを使用
+            proxy_type = detect_proxy_vpn_tor(ip, result['ISP'], tor_nodes)
+            is_anonymous = (proxy_type != "Standard Connection")
+            result['Proxy_Type'] = f"{proxy_type}" if is_anonymous else ""
+        
+    except Exception as e:
+        result['Status'] = f'Error: Pro API ({type(e).__name__})'
+    
+    result['Secondary_Security_Links'] = create_secondary_links(ip)
+    return result
+
+# --- API通信関数 (Main) ---
+def get_ip_details_from_api(ip, cidr_cache_snapshot, delay_between_requests, rate_limit_wait_seconds, tor_nodes, use_rdap, api_key=None):
+    
+    # 1. Proモード (APIキーあり) の場合
+    if api_key:
+        result = get_ip_details_pro(ip, api_key, tor_nodes)
+        
+        # RDAPオプションが有効なら、Proモードでも追記する
+        if use_rdap:
+            rdap_result = fetch_rdap_data(ip)
+            if rdap_result:
+                result['ISP'] = f"{result['ISP']} [RDAP: {rdap_result}]"
+        
+        return result, None
+
+    # 2. 通常モード (ip-api.com)
     result = {
         'Target_IP': ip, 'ISP': 'N/A', 'ISP_JP': 'N/A', 'Country': 'N/A', 'Country_JP': 'N/A', 
         'CountryCode': 'N/A', 'RIR_Link': 'N/A', 'Secondary_Security_Links': 'N/A', 'Status': 'N/A'
@@ -477,13 +620,34 @@ def get_ip_details_from_api(ip, cidr_cache_snapshot, delay_between_requests, rat
         if data.get('status') == 'success':
             country_code = data.get('countryCode', 'N/A') 
 
-            result['ISP'] = data.get('isp', 'N/A')
+            # ISP名またはOrg名を採用
+            raw_isp = data.get('isp', 'N/A')
+            raw_org = data.get('org', '')
+            
+            # Org情報がある場合は、ISP情報と併記または優先度判定
+            combined_name = raw_isp
+            if raw_org and raw_org != raw_isp:
+                combined_name = f"{raw_isp} / {raw_org}"
+            
+            result['ISP'] = combined_name
             result['Country'] = data.get('country', 'N/A')
             result['CountryCode'] = data.get('countryCode', 'N/A')
             result['RIR_Link'] = get_authoritative_rir_link(ip, country_code)
             status_type = "IPv6 API" if not is_ipv4(ip) else "IPv4 API"
+            
+            # --- 🆕 RDAP併用ロジック ---
+            rdap_name = ""
+            if use_rdap:
+                rdap_result = fetch_rdap_data(ip)
+                if rdap_result:
+                    rdap_name = rdap_result
+                    result['ISP'] = f"{result['ISP']} [RDAP: {rdap_name}]"
+
             result['Status'] = f'Success ({status_type})'
+            
+            # 名寄せ処理
             jp_isp, jp_country = get_jp_names(result['ISP'], country_code)
+            
             proxy_type = detect_proxy_vpn_tor(ip, result['ISP'], tor_nodes)
             is_anonymous = (proxy_type != "Standard Connection")
             result['ISP_JP'] = jp_isp
@@ -493,7 +657,7 @@ def get_ip_details_from_api(ip, cidr_cache_snapshot, delay_between_requests, rat
             if cidr_block:
                 new_cache_entry = {
                     cidr_block: {
-                    'ISP': result['ISP'],
+                    'ISP': result['ISP'], # RDAP情報込みでキャッシュする
                     'Country': result['Country'],
                     'CountryCode': result['CountryCode'],
                     'Timestamp': time.time()
@@ -1327,75 +1491,95 @@ def main():
             }
         )
         st.markdown("---")
+        
+        # 🆕 Proモード設定 (APIキー入力)
+        st.markdown("#### 🔑 Pro Mode (Optional)")
+        pro_api_key = st.text_input("ipinfo.io API Key", type="password", help="入力するとipinfo.ioの高精度データベースを使用します。空欄の場合はip-api.com(無料)を使用します。")
+        
+        st.markdown("---")
         if st.button("🔄 IPキャッシュクリア", help="キャッシュが古くなった場合にクリック"):
             st.session_state['cidr_cache'] = {} 
             st.info("IP/CIDRキャッシュをクリアしました。")
             st.rerun()
 
     if selected_menu == "仕様・解説":
-        st.title("📖 ツールの仕様と解説")
-        st.markdown(f"""
-        このツールは、IPアドレスまたはドメイン名に対して Whois および IP Geolocation 情報を一括で検索するためのアプリケーションです。
-                    
-        #### 1. データソース
-        - **IP Geolocation / ISP 情報**: `ip-api.com` の API を使用しています。
-        - **Whois リンク**: 各IPアドレスの国コードに基づいて、適切な地域インターネットレジストリ (RIR) の Whois 検索ページへのリンクを生成します。          
-
-        #### 2. 主な機能
-        - **一括Whois検索**: 
-            - 複数行の IP/ドメインを一括で処理できます。
-            - 処理はマルチスレッドで行われ、APIのレートリミットを自動で検知・待機します。
-            - **CIDRキャッシュ**: **同じCIDRブロック内のIPアドレスはAPIリクエストをスキップ**し、検索速度を大幅に向上させます。（デフォルトでIPv4は/24、IPv6は/48のブロックでキャッシュします。）
-            - **標準モード**: 各ターゲットを個別に表示します。
-            - **集約モード**: 同じ ISP/国コードを持つ連続するIPv4アドレス群を「IPレンジ」として集約表示します。
-            - **簡易モード**: APIコールを行わず、各種セキュリティ/Whois検索サイトへのリンクのみを提供します。
-        - **集計結果**: 検索後、ISP別、国別、ターゲット別をグラフで表示し、国別のIPカウントヒートマップも表示します。
-            - **キャッシュ対応**: キャッシュ機能によりAPIリクエストはユニークなIPに限定されますが、**集計機能は入力リストのIPの重複度（出現回数）を正確に反映**しています。
-        - **セキュリティ/Whois検索サイトリンク**: VirusTotal, Aguseなどのセキュリティ関連リンクも併せて表示します。
-                    
-        #### 3. セキュリティ/Whois検索サイトの特性
-        - **公式RIR**: 各地域のインターネットレジストリ (RIR) が提供する公式の Whois サービスです。最も正確な情報が得られますが、一部の RIR では手動での検索が必要です。
-        - **[{'VirusTotal'}]({SECONDARY_TOOL_BASE_LINKS['VirusTotal']})**: セキュリティ評判、マルウェア、攻撃履歴の確認できます。
-        - **[{'Whois.com'}]({SECONDARY_TOOL_BASE_LINKS['Whois.com']}) / [{'Who.is'}]({SECONDARY_TOOL_BASE_LINKS['Who.is']})**: 公式情報を見やすく表示します。ドメイン/IPの両方に対応しています。            
-        - **[{'DomainSearch.jp'}]({SECONDARY_TOOL_BASE_LINKS['DomainSearch.jp']}) / [{'Aguse'}]({SECONDARY_TOOL_BASE_LINKS['Aguse']})**: IPアドレス、ドメイン名、ネームサーバ等の複合的な調査が可能です。
-        - **[{'IP2Proxy'}]({SECONDARY_TOOL_BASE_LINKS['IP2Proxy']})**: プロキシ、VPN、Torなどの匿名化技術の使用判定が可能です。
-        - **[{'DNS Checker'}]({SECONDARY_TOOL_BASE_LINKS['DNS Checker']})**: IPv6対応。DNSレコードやWhois情報の多機能ツールです。
-        - **[{'DNSlytics'}]({SECONDARY_TOOL_BASE_LINKS['DNSlytics']}) / [{'IP Location'}]({SECONDARY_TOOL_BASE_LINKS['IP Location']})**: IPv6対応。地理情報、ホスティング情報等の調査が可能です。
-        - **[{'CP-WHOIS'}]({SECONDARY_TOOL_BASE_LINKS['CP-WHOIS']})**: **信頼性**が高いWhois検索ツールです。利用者認証が必要です。
-
-        #### 4. 技術的仕様
-        - **Streamlit**: WebUIフレームワーク
-        - **Requests/ThreadPoolExecutor**: HTTP通信とマルチスレッド並列処理
-        - **IP Address/Socket/Struct**: IPアドレス操作およびCIDR対応
-        - **Pandas/Altair/GeoJSON**: データ集計と可視化
-        - **Excel出力**: `openpyxl` ライブラリを使用して、集計結果や検索リストをExcelファイルとしてダウンロード可能になりました。
-        - **Tor Exit Node 判定**:
-            - 起動時にTor公式サイトから最新の出口ノードリストを自動取得・更新し、匿名化ネットワーク経由の通信かどうかを判定します。
-
-        #### 5. API レートリミット対策
-        `ip-api.com` の API は無料版で**毎分 45リクエスト**のレートリミットがあります。
-        - **API 処理モード**で、安定性を優先するか、速度を優先するかを選択できます。
-            - **安定性重視**: 単一スレッドで、APIコール間に {MODE_SETTINGS["安定性重視 (2.5秒待機/単一スレッド)"]["DELAY_BETWEEN_REQUESTS"]} 秒の遅延を設けます。
-            - **速度優先**: 2スレッドで、APIコール間に {MODE_SETTINGS["速度優先 (1.4秒待機/2スレッド)"]["DELAY_BETWEEN_REQUESTS"]} 秒の遅延を設けます。
-        - 検索処理中に 429 エラー (Too Many Requests) が発生した場合、ツールは自動的に {RATE_LIMIT_WAIT_SECONDS} 秒間処理を中断し、その後残りの処理を再開します。
-        - **CIDRキャッシュ機能**により、一度検索したIPアドレスと同じCIDRブロック内のIPアドレスに対するAPIリクエストを回避し、レートリミット対策の効率を向上させています。
+        st.title("📖 マニュアル & ガイド")
         
-        #### 6. OCRエラー対策
-        入力された文字列に対して、OCR誤認識で発生しやすい文字 (`Ⅱ` -> `11`,`I/l` -> `1`, `O/o` -> `0`, `S/s` -> `5` など) を自動で修正する処理を加えています。
+        # タブで情報を整理して見やすくする
+        tab1, tab2, tab3 = st.tabs(["🔰 使い方・モード選択", "⚙️ 仕様・技術詳細", "❓ FAQ"])
+        
+        with tab1:
+            st.markdown("### 🚀 クイックスタート")
+            st.markdown("""
+            1. **入力**: 左側のテキストエリアにIPアドレスを貼り付けるか、テキストファイルをアップロードします。
+            2. **設定**: 基本的にはそのままでOKです。より詳しい情報が必要な場合は下の表を参考にモードを変更してください。
+            3. **実行**: 「🚀 検索開始」ボタンを押します。
+            """)
+            
+            st.info("💡 **ヒント**: 結果が出たあと、画面下のボタンからExcelファイルをダウンロードすると、自動でグラフ化された分析レポートが見れます。")
 
-    
-        #### 7. 判定ロジックと通信の仕組み
-        - **匿名化・インフラ判定 (Hosting/VPN/Proxy)**:
-            - ISP名や組織名に `hosting`, `cloud`, `vps`, `prox`, `vpn` などのキーワードが含まれる場合、**「⚠️ Hosting/VPN/Proxy」**として警告を表示します。
-            - これは、その通信が一般家庭のPCからではなく、データセンター上のサーバー（プログラム）や中継サーバーを経由している可能性が高いことを示します。
-        - **CDNや中継サービスの特性**:
-            - **Cloudflare / Akamai / Google**: これらは世界的な中継拠点（CDN）やクラウドインフラです。これらがアクセス元として記録されている場合、実際のユーザーがプライバシー保護機能（iCloudプライベートリレー等）を使用しているか、あるいはボットによる自動巡回である可能性があります。
-        """) 
+            st.markdown("---")
+            st.markdown("### 📊 目的別：モードの選び方")
+            st.markdown("調査の目的に合わせて、最適な設定を選んでください。")
+            
+            # モード比較表
+            comparison_data = {
+                "モード設定": ["基本 (デフォルト)", "Proモードのみ", "Proモード + RDAP"],
+                "こんな時におすすめ": ["とりあえず無料で調べたい", "正確な企業名・VPN判定が知りたい", "法的調査・徹底的に裏取りしたい"],
+                "API設定": ["ip-api.com (無料)", "ipinfo.io (要APIキー)", "ipinfo.io (要APIキー)"],
+                "オプション": ["RDAPオフ", "RDAPオフ", "RDAPオン ✅"],
+                "処理速度": ["🚀 速い", "🚀 速い", "🐢 普通〜遅い"],
+                "ISP情報の質": ["△ 古い (名寄せで補正)", "◯ 新しい (通称名)", "◎ 最も正確 (登記名)"],
+                "VPN/Proxy判定": ["△ 推測 (名前ベース)", "◎ 正確 (DB照合)", "◎ 正確 (DB照合)"]
+            }
+            st.table(pd.DataFrame(comparison_data).set_index("モード設定"))
+            
+            st.markdown("""
+            - **基本モード**: APIキー不要。名寄せ機能により、J:COMなどの主要ISPは正しく表示されます。
+            - **Proモード**: サイドバーにAPIキーを入力すると有効化。VPNやHostingの判定精度が格段に上がります。
+            - **RDAPオプション**: 「検索表示設定」でチェックを入れると有効化。公式台帳を参照し、データの完全性を高めます。
+            """)
+
+        with tab2:
+            st.markdown("""
+            #### 1. データソース
+            - **IP Geolocation / ISP 情報**: 
+                - 無料版: `ip-api.com` (毎分45リクエスト制限)
+                - Pro版: `ipinfo.io` (APIキーに基づく制限)
+            - **Whois (RDAP)**: APNIC等の各地域レジストリ公式サーバー
+            - **Tor出口ノード**: Tor Project公式サイトより起動時に最新リストを取得
+
+            #### 2. 強力な名寄せ機能
+            `ip-api` 等のデータベースに残る古いISP名称（例: JCN, Jupiter, So-net等）を、独自辞書により現在のブランド名（例: J:COM, Sony, NTT等）に自動変換して集計します。これにより、表記揺れによる分析のストレスを軽減します。
+
+            #### 3. 技術的仕様
+            - **並列処理**: マルチスレッドによる高速検索（APIレートリミット自動調整機能付き）
+            - **CIDRキャッシュ**: 同一ネットワーク帯域（/24など）への重複リクエストを回避し、高速化
+            - **OCR誤読補正**: `1` と `l`、`0` と `O` などのOCR読み取りミスを自動修正して検索
+            """)
+            
+            st.markdown("#### 4. 判定ステータスの意味")
+            st.warning("⚠️ **Hosting/VPN/Proxy**")
+            st.markdown("データセンター、VPNサービス、プロキシサーバー経由の通信です。一般家庭からのアクセスではなく、ボットや匿名化ツールを使用している可能性があります。")
+            st.error("⚠️ **Tor Node**")
+            st.markdown("Tor匿名化ネットワークの出口ノードです。攻撃の前兆や、高い匿名性を必要とする通信の可能性があります。")
+
+        with tab3:
+            st.markdown("""
+            **Q. ファイルをアップロードしても大丈夫ですか？**
+            A. このツールはローカル（またはセキュアなクラウド環境）で動作し、アップロードされたデータが外部（開発者）に送信されることはありません。APIへの問い合わせにはIPアドレスのみが送信されます。
+
+            **Q. 検索が途中で止まりました。**
+            A. APIの制限（レートリミット）にかかった可能性があります。ツールは自動的に待機して再開しますが、大量（数千件）の検索を行う場合は時間がかかります。「待機中」の表示が出ている場合はそのままお待ちください。
+
+            **Q. ipinfoのAPIキーはどこで手に入りますか？**
+            A. [ipinfo.io](https://ipinfo.io/signup) から無料で登録・取得できます（無料枠あり）。
+            """)
         return
             
 
     # --- メインコンテンツ：Whois検索タブ ---
-    st.title("🌐 WhoisSearchTool")
+    st.title("🌐 検索大臣 - Whois & IP Intelligence -")
 
     col_input1, col_input2 = st.columns([1, 1])
 
@@ -1471,11 +1655,9 @@ def main():
                             st.session_state['ip_column_name'] = ip_col
                             raw_targets.extend(df_orig[ip_col].dropna().astype(str).tolist())
                             
-                            # --- 新機能：アップロードデータのプレビュー ---
                             st.info(f"📄 ファイル読み込み完了: {len(df_orig)} 行 / IP列: `{ip_col}`")
                             with st.expander("👀 アップロードデータ・プレビュー", expanded=False):
                                 st.dataframe(df_orig)
-                            # ---------------------------------------------
                         else:
                             st.error("ファイル内にIPアドレスの列が見つかりませんでした。")
 
@@ -1538,19 +1720,24 @@ def main():
     st.markdown("---")
     st.markdown("### ⚙️ 検索表示設定")
     
-    display_mode = st.radio(
-        "**表示モード:** (検索結果の表示形式とAPI使用有無を設定)",
-        ("標準モード", "集約モード (IPv4 Group)", "簡易モード (APIなし)"),
-        key="display_mode_radio",
-        horizontal=True
-    )
+    col_set1, col_set2 = st.columns(2)
+    with col_set1:
+        display_mode = st.radio(
+            "**表示モード:** (検索結果の表示形式とAPI使用有無を設定)",
+            ("標準モード", "集約モード (IPv4 Group)", "簡易モード (APIなし)"),
+            key="display_mode_radio",
+            horizontal=False
+        )
     
-    api_mode_selection = st.radio(
-        "**API 処理モード:** (速度と安定性のトレードオフ)",
-        list(MODE_SETTINGS.keys()),
-        key="api_mode_radio",
-        horizontal=True
-    )
+    with col_set2:
+        api_mode_selection = st.radio(
+            "**API 処理モード:** (速度と安定性のトレードオフ)",
+            list(MODE_SETTINGS.keys()),
+            key="api_mode_radio",
+            horizontal=False
+        )
+        # 🆕 RDAPオプション
+        use_rdap_option = st.checkbox("🔍 高精度モード (RDAP公式台帳の併用 - 低速)", value=False, help="無料APIのISP情報に加え、RDAP(公式台帳)から最新のネットワーク名を取得します。通信が増えるため処理が遅くなります。")
     
     selected_settings = MODE_SETTINGS[api_mode_selection]
     max_workers = selected_settings["MAX_WORKERS"]
@@ -1573,6 +1760,8 @@ def main():
 
     with col_act1:
         st.success(f"**Target:** IPv4: {ipv4_count} / IPv6: {ipv6_count} / Domain: {len(domain_targets)} (Pending: {len(st.session_state.deferred_ips)}) / **CIDR Cache:** {len(st.session_state.cidr_cache)}")
+        if pro_api_key:
+            st.info("🔑 **Pro Mode Active:** ipinfo.io データベースを使用します")
 
     with col_act2:
         if is_currently_searching:
@@ -1662,7 +1851,9 @@ def main():
                                 cidr_cache_snapshot, 
                                 delay_between_requests, 
                                 rate_limit_wait_seconds,
-                                tor_nodes
+                                tor_nodes,
+                                use_rdap_option,
+                                pro_api_key # APIキーを渡す
                             ): ip for ip in immediate_ip_queue
                         }
                         remaining = set(future_to_ip.keys())
